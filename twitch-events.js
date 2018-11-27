@@ -1,375 +1,271 @@
+let _ws = new WeakMap()
+let _clientId = new WeakMap()
+let _nick = new WeakMap()
+let _defaultEventsHandled = new WeakMap()
+let _channelIds = new WeakMap()
+let _channelNames = new WeakMap()
+let _channelRooms = new WeakMap()
+let _password = new WeakMap()
 
-/*
-opts =
-{
-    ClientID: 'foo',
-    Nick: 'botshifter08',
-    Pass: 'oauth:abcde12345',
-    Debug: false,
-    onConnect: f()
-}
-*/
-function TwitchClient(opts) {
+const _OnWebsocketOpen = Symbol('onWebsocketOpen')
+const _OnWebsocketMessage = Symbol('onWebsocketMessage')
+const _OnWebsocketError = Symbol('onWebsocketError')
+const _OnWebsocketClose = Symbol('onWebsocketClose')
 
-    //privates
-    var _ws,
-        _clientId = opts.ClientID,
-        _nick,
-        client = this,
-        _defaultEventsHandled = {},
-        _channelIds = {},
-        _channelNames = {},
-        _channelRooms = {};
+class TwitchClient {
+    constructor(options) {
+        // Initializing publics
+        this.options = options
+        this.Debug = options.Debug || false
+        this.Nickname = options.Nick || false
+        this.Channels = []
+        this.PendingChannels = []
 
+        // Initializing public events
+        this.onMessage = () => SetDefaultEventHandled('onMessage')
+        this.onPrivmsg = () => SetDefaultEventHandled('onPrivmsg')
+        this.onJoin = () => SetDefaultEventHandled('onJoin')
+        this.onPart = () => SetDefaultEventHandled('onPart')
+        this.onRoomstate = () => SetDefaultEventHandled('onRoomstate')
+        this.onUsernotice = () => SetDefaultEventHandled('onUsernotice')
 
-    //publics
-    this.Debug = opts.Debug || false;
-    this.Channels = [];
-    this.PendingChannels = [];
+        // Initializing privates
+        _ws.set(this, null)
+        _clientId.set(this, options.ClientID)
+        _nick.set(this, null)
+        _password.set(this, options.Pass || false)
+        _defaultEventsHandled.set(this, {})
+        _channelIds.set(this, {})
+        _channelNames.set(this, {})
+        _channelRooms.set(this, {})
 
-    if (opts.Channels) {
-        if (Array.isArray(opts.Channels))
-            this.PendingChannels = opts.Channels;
-        else
-            this.PendingChannels.push(opts.Channels);
-    }
-
-    if (_clientId == undefined && this.Debug) {
-        console.log('ClientID not provided; follower data will not be available.');
-    }
-    else {
-        this.ClientID = _clientId;
-    }
-
-    
-
-    //websocket handlers
-    function OnWebsocketOpen() {
-        this.send('CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership');
-        if (opts.Nick && opts.Pass) {
-            this.send(`PASS ${(opts.Pass.indexOf('oauth:') == 0 ? '' : 'oauth:')} ${opts.Pass}`);
-            this.send(`NICK ${opts.Nick}`);
-            this.Nickname = opts.Nick;
-        }
-        else {
-            this.send(`NICK justinfan${Math.floor(Math.random() * 999999)}`);
+        // Miscellaneous Logic
+        if(options.Channels) {
+            Array.isArray(options.Channels) 
+                ? this.PendingChannels = options.Channels 
+                : this.PendingChannels.push(options.Channels)
         }
 
-        
+        if(typeof _clientId.get(this) === null && this.Debug)
+            console.log('ClientID not provided; follower data will not be available.')
+        else this.ClientID = _clientId.get(this)
+    }
 
-        var idx=0;
-        while (idx < client.PendingChannels.length) {
-            if (client.PendingChannels[idx].indexOf(':') == -1) {
-                var c = client.PendingChannels[idx].trim();
-                if (c.indexOf('#') != 0)
-                    c = '#' + c;
-                this.send(`JOIN ${c}`);
-                client.Channels.push(c);
-                client.PendingChannels.shift();
+    // Private methods
+    [_OnWebsocketOpen]() {
+        _ws.get(this).send('CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership')
+        if(this.Nickname && _password.get(this)) {
+            _ws.get(this).send(`PASS ${_password.get(this).indexOf('oauth:') == 0 ? '' : 'oauth:'} ${_password.get(this)}`)
+            _ws.get(this).send(`NICK ${this.Nickname}`)
+        }
+        else _ws.get(this).send(`NICK justinfan${Math.floor(Math.random() * 999999)}`)
+
+        let index = 0
+        while(index < this.PendingChannels.length) {
+            if(this.PendingChannels[index].indexOf(':') == -1) {
+                let channel = this.PendingChannels[index].trim()
+                if(channel.indexOf('#') != 0) channel = '#' + channel
+                _ws.get(this).send(`JOIN ${channel}`)
+                this.Channels.push(channel)
+                this.PendingChannels.shift()
             }
-            else {
-                idx++
-            }
+            index++
         }
     }
 
-    function OnWebsocketMessage(msgData) {
-        var data = msgData.data.split('\r\n');
+    [_OnWebsocketMessage](messageObject) {
+        const data = messageObject.data.split('\r\n')
 
-        for (line of data) {
+        for(line of data) {
+            if(line.trim() === '') continue
+            if(this.Debug) console.log(`>${line}`)
+            if(this.onMessage) this.onMessage(line)
 
-            if (line.trim() == '') {
-                continue;
+            const parts = line.split(' ')
+
+            if(parts[0] === 'PING')
+                _ws.get(this).send(`PONG ${parts[1].substring(1)}`)
+            else if(parts[1] === 'JOIN') {
+                if(this.onJoin)
+                    this.onJoin(parts[0]
+                        .split(':')[1]
+                        .split('!')[0], parts[2])
+                    // fireEvent('onJoin', line)
             }
-
-            if (client.Debug) {
-                console.log('>' + line);
+            else if(parts[1] === 'PART') {
+                if(this.onPart)
+                    this.onPart(parts[0]
+                        .split(':')[1]
+                        .split('!')[0], parts[2])
+                    // fireEvent('onPart', line)
             }
+            // else if(parts[1] === 'MODE') fireEvent('onMode', line)
+            else if(parts[2] === 'PRIVMSG') {
+                const userData = parts[0].split(';')
+                const user = parts[1]
+                    .split(':')[1]
+                    .split('!')[0]
+                const channel = parts[3]
+                const index = line.indexOf(':', line.indexOf(channel))
+                const message = line.substring(index + 1)
+                let userDataObject = {}
 
-            if (client.onMessage)
-                client.onMessage(line);
-
-            var parts = line.split(' ');
-
-            if (parts[0] == 'PING') {
-                _ws.send(`PONG ${parts[1].substring(1)}`);
-            }
-            else if (parts[1] == 'JOIN') {
-                if (client.onJoin)
-                    client.onJoin(parts[0].split(':')[1].split('!')[0], parts[2]);
-                //fireEvent('onJoin', line);
-            }
-            else if (parts[1] == 'PART') {
-                if (client.onPart)
-                    client.onPart(parts[0].split(':')[1].split('!')[0], parts[2]);
-                //fireEvent('onPart', line);
-            }
-            else if (parts[1] == 'MODE') {
-                //fireEvent('onMode', line);
-            }
-            else if (parts[2] == 'PRIVMSG') {
-
-/*
-
-@badges=broadcaster/1;color=#1E90FF;display-name=timeshifter08;emotes=;id=d653a0d0-1cd0-492e-ad6e-2de1940a8d16;mod=0;room-id=61927669;subscriber=0;tmi-sent-ts=1524771643982;turbo=0;user-id=61927669;user-type=
- :timeshifter08!timeshifter08@timeshifter08.tmi.twitch.tv PRIVMSG #timeshifter08 :asdf
-
-@badges=broadcaster/1;color=#1E90FF;display-name=timeshifter08;emotes=;id=847906fc-5db5-4ce5-9258-f206b94d9a31;mod=0;room-id=61927669;subscriber=0;tmi-sent-ts=1524771400844;turbo=0;user-id=61927669;user-type=
- :timeshifter08!timeshifter08@timeshifter08.tmi.twitch.tv PRIVMSG #chatrooms:61927669:a0c1e70d-7d52-491a-bcd5-6db6a5492d64 :asdf
-
-*/
-
-                var userdata = parts[0].split(';');
-
-                var userdata_obj = {};
-
-                for (s of userdata) {
-                    var sides = s.split('=');
-                    userdata_obj[sides[0]] = sides[1];
-                }
-                
-
-                var user = parts[1].split(':')[1].split('!')[0],
-                    channel = parts[3];
-                
-                var idx = line.indexOf(':', line.indexOf(channel));
-                var msg = line.substring(idx + 1);
-                
-
-                if (client.onPrivmsg)
-                    client.onPrivmsg(user, channel.substring(1), msg, userdata_obj, line);
-
-            }
-            else if (parts[2] == 'ROOMSTATE') {
-
-                /*
-
-@broadcaster-lang=;emote-only=0;followers-only=-1;r9k=0;rituals=1;room-id=61927669;slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #timeshifter08
-
-
-@badges=broadcaster/1;color=#1E90FF;display-name=timeshifter08;emotes=;id=377f9462-5f5e-4e5a-a3c5-13911dc7a623;mod=0;room-id=61927669;subscriber=0;tmi-sent-ts=1525115130064;turbo=0;user-id=61927669;user-type= :timeshifter08!timeshifter08@timeshifter08.tmi.twitch.tv PRIVMSG
- #chatrooms:61927669:a0c1e70d-7d52-491a-bcd5-6db6a5492d64 :alooooha
-
-
-                */
-
-                //var parts = line.split(' ');
-                var userdata = parts[0].split(';');
-
-                var userdata_obj = {};
-
-                for (s of userdata) {
-                    var sides = s.split('=');
-                    userdata_obj[sides[0]] = sides[1];
+                for(s of userData) {
+                    const sides = s.split('=')
+                    userDataObject[sides[0]] = sides[1]
                 }
 
-                var channel = line.split(' ')[3].substring(1).trim().toLowerCase();
+                if(this.onPrivmsg)
+                    this.onPrivmsg(user, channel.substring(1), message, userDataObject, line)
+            }
+            else if(parts[2] === 'ROOMSTATE') {
+                // const parts = line.split(' ')
+                const userData = parts[0].split(';')
+                const channel = line.split(' ')[3]
+                    .substring(1)
+                    .trim()
+                    .toLowerCase()
+                let userDataObject = {}
 
-                //channel record has already been created, bail
-                //if (_channelIds[channel] != undefined) {
-                //    return;
-                //}
+                for(s of userData) {
+                    const sides = s.split('=')
+                    userDataObject[sides[0]] = sides[1]
+                }
 
-                //for (var i = 0; i < userdata.length; i++) {
-                //    if (userdata[i].indexOf('room-id') == 0) {
-                //        _channelIds[channel] = userdata[i].split('=')[1];
-                //        _channelNames[userdata[i].split('=')[1]] = channel;
-                //        _channelRooms[userdata[i].split('=')[1]] = {};
-                //        break;
+                // channel record has already been created, bail
+                // if (typeof _channelIds.get(this)[channel] !== null) return
+
+                // for (let i = 0; i < userdata.length; i++) {
+                //    if (userData[i].indexOf('room-id') == 0) {
+                //        _channelIds[channel].set(this, userData[i].split('=')[1])
+                //        _channelNames[userdata[i].split('=')[1]].set(this, channel)
+                //        _channelRooms[userdata[i].split('=')[1]].set(this, {})
+                //        break
                 //    }
-                //}
+                // }
 
-                if (client.onRoomstate)
-                    client.onRoomstate(channel, userdata_obj);
-
+                if(this.onRoomstate) this.onRoomstate(channel, userDataObject)
             }
-            else if (parts[2] == 'USERNOTICE') {
+            else if (parts[2] === 'USERNOTICE') {
+                this.onUsernotice(line)
+                const messageParts = parts[0].split(';')
+                let isSub
 
-                client.onUsernotice(line);
-
-                var msgParts = parts[0].split(';');
-
-                for (var i = 0; i < msgParts.length; i++) {
-
-                    if (msgParts[i] == 'msg-id=sub') {
-                        isSub = 0;
-                        break;
+                // Kexerval: You never defined 'isSub' in your codebase, so I had to
+                // take a guess that it should be local to the USERNOTICE if statement
+                // If you use this variable somewhere else, you'll need to use a different
+                // approach
+                for(let i = 0; i < messageParts.length; i++) {
+                    switch(messageParts[i]) {
+                        case 'msg-id=sub':
+                            isSub = 0
+                            break
+                        case 'msg-id=resub':
+                            isSub = 1
+                            break
+                        case 'msg-id=subgift':
+                            isSub = 2
+                            break
                     }
-                    else if (msgParts[i] == 'msg-id=resub') {
-                        isSub = 1;
-                        break;
-                    }
-                    else if (msgParts[i] == 'msg-id=subgift') {
-                        isSub = 2;
-                        break;
-                    }
-
                 }
-
-
-
             }
-            else {
-                //console.log('>' + line);
+            // else console.log(`>${line}`)
+        }
+    }
+
+    [_OnWebsocketError](error) {
+        if(this.Debug) console.error(`Websocket error: ${error}`)
+        setTimeout(() => {
+            this.Connect()
+        }, 1000)
+    }
+
+    [_OnWebsocketClose]() {
+        setTimeout(() => {
+            this.Connect()
+        }, 1000)
+    }
+
+    // Public methods
+    Connect = () => {
+        for(c of this.Channels) this.PendingChannels.push(c)
+
+        this.Channels = []
+
+        _ws.set(this, new WebSocket('wss://irc-ws.chat.twitch.tv'))
+        _ws.onopen.set(this, this[_OnWebsocketOpen])
+        _ws.onmessage.set(this, this[_OnWebsocketMessage])
+        _ws.onerror.set(this, this[_OnWebsocketError])
+        _ws.onclose.set(this, this[_OnWebsocketClose])
+    }
+
+    // Sends a message to the specified channel
+    SendMessage = (channel, message) => {
+        if(channel.indexOf('#') != 0) channel = '#' + channel
+
+        _ws.get(this).send(`PRIVMSG ${channel} :${message}`)
+    }
+
+    // Joins a channel/array of channels
+    JoinChannels = channels => {
+        let array = []
+
+        if(!Array.isArray(channels)) array.push(channels)
+        else array = channels
+
+        for(c of array) {
+            c = c.trim().toLowerCase()
+
+            // if(c.split(':').length == 3)
+            //     throw new TypeError('Chat rooms must be joined by <channel name>:<room name>')
+            // else if(c.split(':').length == 2) {}
+
+            if(c[0] != '#') c = '#' + c
+            if(_ws.get(this).readyState) {
+                this.Channels.push(c)
+                _ws.get(this).send(`JOIN ${c}`)
             }
+            else this.PendingChannels.push(c)
         }
     }
 
-    function OnWebsocketError(e) {
-        if (client.Debug) {
-            console.log(`Websocket error: ${e}`);
-        }
-        setTimeout(function () {
-            client.Connect();
-        }, 1000);
-    }
+    // Leave a channel/array of channels
+    LeaveChannels = channels => {
+        let array = []
 
-    function OnWebsocketClose(e) {
-        setTimeout(function () {
-            client.Connect();
-        }, 1000);
-    }
+        Array.isArray(channels) ? array = channels : array.push(channels)
 
-
-
-
-
-
-
-    //public functions
-
-    this.Connect = function () {
-
-        for (c of client.Channels) {
-            client.PendingChannels.push(c);
-        }
-        client.Channels = [];
-
-        _ws = new WebSocket('wss://irc-ws.chat.twitch.tv');
-        _ws.onopen = OnWebsocketOpen;
-        _ws.onmessage = OnWebsocketMessage;
-        _ws.onerror = OnWebsocketError;
-        _ws.onclose = OnWebsocketClose;
-    }
-
-    ///Send a message to the specified channel
-    this.SendMessage = function (channel, message) {
-        if (channel.indexOf('#') != 0)
-            channel = '#' + channel;
-
-        _ws.send(`PRIVMSG ${channel} :${message}`);
-    }
-
-    ///Join a single channel or an array of channel names
-    this.JoinChannels = function (channels) {
-        var arr = [];
-        if (!Array.isArray(channels)) {
-            arr.push(channels);
-        }
-        else {
-            arr = channels;
-        }
-
-        for (c of arr) {
-            c = c.trim().toLowerCase();
-
-            //if (c.split(':').length == 3) {
-            //    throw 'Error: Chat rooms must be joined by <channel name>:<room name>.'
-            //    return;
-            //}
-            //else if (c.split(':').length == 2) {
-
-
-            //}
-
-
-            if (c[0] != '#')
-                c = '#' + c;
-
-            if (_ws.readyState == 1) {
-                client.Channels.push(c);
-
-                _ws.send(`JOIN ${c}`);
-            }
-            else
-                client.PendingChannels.push(c);
-
-        }
-    }
-
-    ///Leave a single channel or an array of channel names
-    this.LeaveChannels = function (channels) {
-        var arr = [];
-        if (!Array.isArray(channels)) {
-            arr.push(channels);
-        }
-        else {
-            arr = channels;
-        }
-
-        for (c of arr) {
-            if (c != undefined) {
-                c = c.trim().toLowerCase();
-                if (c[0] != '#')
-                    c = '#' + c;
-
-                if (_ws.readyState == 1) {
-
-                    _ws.send(`PART ${c}`);
-                    var i = client.Channels.indexOf(c);
-                    client.Channels.splice(i, 1);
+        for(c of array) {
+            // undefined is falsey so we just check if c exists
+            if(c) {
+                c = c.trim().toLowerCase()
+                
+                if(c[0] != '#') c = '#' + c
+                if(_ws.get(this).readyState == 1) {
+                    let i = this.Channels.indexOf(c)
+                    
+                    _ws.get(this).send(`PART ${c}`)
+                    this.Channels.splice(i, 1)
                 }
                 else {
-                    var i = client.PendingChannels.indexOf(c);
-                    client.PendingChannels.splice(i, 1);
-
+                    let i = this.PendingChannels.indexOf(c)
+                    this.PendingChannels.splice(i, 1)
                 }
             }
         }
     }
 
-
-    //events
-
-    function SetDefaultEventHandled(evt) {
-        if (!_defaultEventsHandled[evt]) {
-            console.log(`${evt} event not handled!`);
-            _defaultEventsHandled[evt] = true;
+    // Default events are now located in the constructor
+    SetDefaultEventHandled = eventName => {
+        if(!_defaultEventsHandled.get(this)[eventName]) {
+            console.warn(`${eventName} event not handled!`)
+            _defaultEventsHandled.get(this)[event]
+                .set(this, true)
         }
     }
 
-    this.onMessage = function (message) {
-        SetDefaultEventHandled('onMessage');
-    }
-
-    this.onPrivmsg = function (user, channel, message, userData, rawMessage) {
-        SetDefaultEventHandled('onPrivmsg');
-    }
-
-    this.onJoin = function (user, channel) {
-        SetDefaultEventHandled('onJoin');
-    }
-
-    this.onPart = function (user, channel) {
-        SetDefaultEventHandled('onPart');
-    }
-
-    this.onRoomstate = function (channel, settings) {
-        SetDefaultEventHandled('onRoomstate');
-    }
-
-    this.onUsernotice = function (message) {
-        SetDefaultEventHandled('onUsernotice');
-    }
-
-
-
-    ///gooooo!
-    this.Connect();
-
-
-    this.DebugFunction = function () {
-        console.log('channel id list:   ', _channelIds);
-        console.log('channel name list: ', _channelNames);
+    DebugFunction = () => {
+        console.debug('channel id list:     ', _channelIds.get(this))
+        console.debug('channel name list:   ', _channelNames.get(this))
     }
 }
