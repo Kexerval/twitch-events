@@ -16,31 +16,31 @@ class TwitchClient {
     constructor(options) {
         // Initializing publics
         this.options = options
-        this.Debug = options.Debug || false
-        this.Nickname = options.Nick || false
+        this.Debug = (typeof options === 'undefined') ? false : options.Debug
+        this.Nickname = (typeof options === 'undefined') ? false : options.Nick
         this.Channels = []
         this.PendingChannels = []
 
         // Initializing public events
-        this.onMessage = () => SetDefaultEventHandled('onMessage')
-        this.onPrivmsg = () => SetDefaultEventHandled('onPrivmsg')
-        this.onJoin = () => SetDefaultEventHandled('onJoin')
-        this.onPart = () => SetDefaultEventHandled('onPart')
-        this.onRoomstate = () => SetDefaultEventHandled('onRoomstate')
-        this.onUsernotice = () => SetDefaultEventHandled('onUsernotice')
+        this.onMessage = () => this.SetDefaultEventHandled('onMessage')
+        this.onPrivmsg = () => this.SetDefaultEventHandled('onPrivmsg')
+        this.onJoin = () => this.SetDefaultEventHandled('onJoin')
+        this.onPart = () => this.SetDefaultEventHandled('onPart')
+        this.onRoomstate = () => this.SetDefaultEventHandled('onRoomstate')
+        this.onUsernotice = () => this.SetDefaultEventHandled('onUsernotice')
 
         // Initializing privates
         _ws.set(this, null)
-        _clientId.set(this, options.ClientID)
+        typeof options === 'undefined' ? _clientId.set(this, null) : _clientId.set(this, options.ClientID)
         _nick.set(this, null)
-        _password.set(this, options.Pass || false)
+        typeof options === 'undefined' ? _password.set(this, false) : _password.set(this, options.Pass)
         _defaultEventsHandled.set(this, {})
         _channelIds.set(this, {})
         _channelNames.set(this, {})
         _channelRooms.set(this, {})
 
         // Miscellaneous Logic
-        if(options.Channels) {
+        if(typeof options !== 'undefined' && options.Channels) {
             Array.isArray(options.Channels) 
                 ? this.PendingChannels = options.Channels 
                 : this.PendingChannels.push(options.Channels)
@@ -76,7 +76,7 @@ class TwitchClient {
     [_OnWebsocketMessage](messageObject) {
         const data = messageObject.data.split('\r\n')
 
-        for(line of data) {
+        for(const line of data) {
             if(line.trim() === '') continue
             if(this.Debug) console.log(`>${line}`)
             if(this.onMessage) this.onMessage(line)
@@ -187,33 +187,33 @@ class TwitchClient {
     }
 
     // Public methods
-    Connect = () => {
+    Connect() {
         for(c of this.Channels) this.PendingChannels.push(c)
 
         this.Channels = []
-
         _ws.set(this, new WebSocket('wss://irc-ws.chat.twitch.tv'))
-        _ws.onopen.set(this, this[_OnWebsocketOpen])
-        _ws.onmessage.set(this, this[_OnWebsocketMessage])
-        _ws.onerror.set(this, this[_OnWebsocketError])
-        _ws.onclose.set(this, this[_OnWebsocketClose])
+        // Let's play a game called "Which 'this' does this?"
+        _ws.get(this).onopen = this[_OnWebsocketOpen].bind(this)
+        _ws.get(this).onmessage = this[_OnWebsocketMessage].bind(this)
+        _ws.get(this).onerror = this[_OnWebsocketError].bind(this)
+        _ws.get(this).onclose = this[_OnWebsocketClose].bind(this)
     }
 
     // Sends a message to the specified channel
-    SendMessage = (channel, message) => {
+    SendMessage(channel, message) {
         if(channel.indexOf('#') != 0) channel = '#' + channel
 
         _ws.get(this).send(`PRIVMSG ${channel} :${message}`)
     }
 
     // Joins a channel/array of channels
-    JoinChannels = channels => {
+    JoinChannels(channels) {
         let array = []
 
         if(!Array.isArray(channels)) array.push(channels)
         else array = channels
 
-        for(c of array) {
+        for(let c of array) {
             c = c.trim().toLowerCase()
 
             // if(c.split(':').length == 3)
@@ -230,7 +230,7 @@ class TwitchClient {
     }
 
     // Leave a channel/array of channels
-    LeaveChannels = channels => {
+    LeaveChannels(channels) {
         let array = []
 
         Array.isArray(channels) ? array = channels : array.push(channels)
@@ -256,15 +256,14 @@ class TwitchClient {
     }
 
     // Default events are now located in the constructor
-    SetDefaultEventHandled = eventName => {
+    SetDefaultEventHandled(eventName) {
         if(!_defaultEventsHandled.get(this)[eventName]) {
             console.warn(`${eventName} event not handled!`)
-            _defaultEventsHandled.get(this)[event]
-                .set(this, true)
+            _defaultEventsHandled.get(this)[eventName] = true
         }
     }
 
-    DebugFunction = () => {
+    DebugFunction() {
         console.debug('channel id list:     ', _channelIds.get(this))
         console.debug('channel name list:   ', _channelNames.get(this))
     }
