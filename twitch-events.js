@@ -15,7 +15,6 @@ const _OnWebsocketClose = Symbol('onWebsocketClose')
 class TwitchClient {
     constructor(options) {
         // Initializing publics
-        this.options = options
         this.Debug = (typeof options === 'undefined') ? false : options.Debug
         this.Nickname = (typeof options === 'undefined') ? false : options.Nick
         this.Channels = []
@@ -46,7 +45,7 @@ class TwitchClient {
                 : this.PendingChannels.push(options.Channels)
         }
 
-        if(typeof _clientId.get(this) === null && this.Debug)
+        if(typeof _clientId.get(this) === 'undefined' && this.Debug)
             console.log('ClientID not provided; follower data will not be available.')
         else this.ClientID = _clientId.get(this)
     }
@@ -133,7 +132,7 @@ class TwitchClient {
                 }
 
                 // channel record has already been created, bail
-                // if (typeof _channelIds.get(this)[channel] !== null) return
+                // if (typeof _channelIds.get(this)[channel] !== 'undefined') return
 
                 // for (let i = 0; i < userdata.length; i++) {
                 //    if (userData[i].indexOf('room-id') == 0) {
