@@ -13,19 +13,25 @@ Chat rooms are currently only supported by full room ID, i.e. `chatrooms:6192766
 ----
 
 ### Initialization
-
+You must include this script before you may instantiate a Client.
 ```html
 <script src="https://timeshifter.github.io/twitch-events/twitch-events.js"></script>
 ```
+or
+```html
+<script src="/path/to/twitch-events.js"></script>
+```
 
+Instantiating a Client.
 ```javascript
 var client = new TwitchClient({
 	ClientID: 'abcde12345',
 	Nick: 'botshifter08',
 	Pass: 'oauth:54321edcba',
-	Debug: true
+	Debug: true,
 });
 
+client.Connect();
 client.JoinChannels('timeshifter08');
 ```
 
@@ -50,27 +56,27 @@ client.JoinChannels('timeshifter08');
 
 ```javascript
 //intended for troubleshooting purposes; this event fires for *every* message received from the WebSocket
-client.onMessage = function (message) {
+client.onMessage = message => {
 	console.log('onMessage', { 'Message': message, 'Timestamp': new Date() });
 };
 
-client.onPrivmsg = function (user, channel, message) {
+client.onPrivmsg = (user, channel, message) => {
 	console.log('onPrivmsg', { 'Username': user, 'Channel': channel, 'Message': message, 'Timestamp': new Date() });
 };
 
-client.onJoin = function (user, channel) {
+client.onJoin = (user, channel) => {
 	console.log('onJoin', { 'Username': user, 'Channel': channel, 'Timestamp': new Date() });
 };
 
-client.onPart = function (user, channel) {
+client.onPart = (user, channel) => {
 	console.log('onPart', { 'Username': user, 'Channel': channel, 'Timestamp': new Date() });
 };
 
-client.onRoomstate = function (channel, settings) {
+client.onRoomstate = (channel, settings) => {
 	console.log('onRoomstate', { 'Channel': channel, 'Settings': settings, 'Timestamp': new Date() });
 };
 
-client.onUsernotice = function (message) {
+client.onUsernotice = message => {
 	console.log(message);
 };
 ```
